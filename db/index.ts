@@ -18,7 +18,19 @@ import { PGlite } from '@electric-sql/pglite'
 import { drizzle } from 'drizzle-orm/pglite'
 import * as schema from './schema'
 
-/** Where PGlite keeps its data on disk. Gitignored; safe to delete to reset. */
+/**
+ * Where PGlite keeps its data on disk. Gitignored; safe to delete to reset.
+ *
+ * IMPORTANT — PGlite is SINGLE-PROCESS. Only one process may hold this
+ * directory at a time. If `next dev` is running and you also run a seed or
+ * migration script, the script's writes will not be visible to the server (and
+ * may not land at all): the server is serving from its own already-open
+ * instance.
+ *
+ * So: stop the dev server before running db:seed or db:migrate, then restart
+ * it. This constraint disappears in production, where Neon is a real networked
+ * server that many processes can share.
+ */
 const LOCAL_DATA_DIR = process.env.PGLITE_DATA_DIR ?? './.pglite'
 
 /**

@@ -1,26 +1,71 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens
+ *
+ * Deliberately restrained. The brief asks for "simple on the surface" and
+ * "keep navigation and screens uncluttered even when the backend is
+ * sophisticated", so there is one accent colour, a neutral scale, and a small
+ * set of semantic colours reserved for meaning that must not be missed —
+ * legal status and verification level.
+ */
 :root {
   --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --surface: #f8fafc;
+  --surface-raised: #ffffff;
+  --border: #e2e8f0;
+  --foreground: #0f172a;
+  --muted: #64748b;
+  --accent: #1d4ed8;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #060a13;
+    --surface: #0d1524;
+    --surface-raised: #131c2e;
+    --border: #23304a;
+    --foreground: #e8edf6;
+    --muted: #94a3b8;
+    --accent: #7ba2ff;
   }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-line: var(--border);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Respect users who ask for less motion; the swipe lesson flow in phase 2 will
+ * lean on transitions, so establish this now rather than retrofitting it. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Hide scrollbars on the horizontal filter rails without disabling scrolling. */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }

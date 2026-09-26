@@ -12,7 +12,10 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:seed:sources": "tsx db/seed-sources.ts",
-    "db:reset": "node -e \"require('fs').rmSync('./.pglite',{recursive:true,force:true});console.log('local database reset')\""
+    "db:seed:content": "tsx db/seed-content.ts",
+    "db:seed": "npm run db:seed:sources && npm run db:seed:content",
+    "db:reset": "node -e \"require('fs').rmSync('./.pglite',{recursive:true,force:true});console.log('local database reset')\"",
+    "screenshot": "tsx scripts/screenshot.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",
@@ -30,6 +33,7 @@
     "drizzle-kit": "^0.31.11",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
+    "playwright": "^1.63.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"
