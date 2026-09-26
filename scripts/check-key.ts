@@ -79,7 +79,26 @@ async function main() {
   } catch (error) {
     console.error('THE CALL FAILED.\n')
 
-    const message = error instanceof Error ? error.message : String(error)
+    const e = error as {
+      status?: number
+      message?: string
+      error?: { error?: { type?: string; message?: string } }
+    }
+    const message = e.message ?? String(error)
+    const apiMessage = e.error?.error?.message
+
+    /*
+     * Always print what the API actually said, before offering advice.
+     *
+     * The translation below is a guess based on the message text, and a
+     * confident wrong guess is worse than a raw error: the first time this ran
+     * it reported "no credits on the account" and the only way to be sure was
+     * to write a separate script to see the real response. Showing both means
+     * the advice can be wrong without being misleading.
+     */
+    if (e.status) console.error(`  HTTP ${e.status}`)
+    if (apiMessage) console.error(`  The API said: "${apiMessage}"
+`)
 
     // Translate the common failures into something actionable, rather than
     // leaving a raw API error for someone who has never seen one.
@@ -88,8 +107,16 @@ async function main() {
       console.error('  - Check for a typo, or a missing character at either end.')
       console.error('  - If you regenerated the key, paste the new one.')
     } else if (message.includes('credit') || message.includes('billing') || message.includes('402')) {
-      console.error('  Reason: no credits on the account.')
-      console.error('  - Go to platform.claude.com -> Settings -> Billing -> Buy credits.')
+      console.error('  Your key is VALID - authentication succeeded. The organisation it')
+      console.error('  belongs to has no API credits.')
+      console.error('')
+      console.error('  Check which organisation you are in (top-left of the Console).')
+      console.error('  If it shows your own name rather than your university, the key was')
+      console.error('  created in a personal organisation and the university credits are')
+      console.error('  somewhere else.')
+      console.error('')
+      console.error('  Note: a Claude.ai Team/Enterprise subscription is NOT API credit.')
+      console.error('  They are billed separately.')
     } else if (message.includes('429')) {
       console.error('  Reason: rate limited. Wait a minute and try again.')
     } else if (message.includes('ENOTFOUND') || message.includes('fetch failed')) {
