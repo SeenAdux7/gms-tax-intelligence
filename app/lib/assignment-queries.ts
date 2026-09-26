@@ -274,14 +274,29 @@ export async function getTopCorridors(limit = 5) {
     .limit(limit)
 }
 
-/** Assignments with an unfinished deadline, soonest first. */
+/**
+ * Assignments with an unfinished deadline, soonest first.
+ *
+ * `status` is DERIVED: anything not completed whose due date has passed reads
+ * as overdue, whatever the stored value says. Storing "overdue" as a column
+ * value makes it a fact about when the row was last written rather than about
+ * the deadline — the dashboard was showing an item 22 days past due as "Open"
+ * because nothing had updated it since. A date comparison cannot go stale.
+ */
 export async function getUpcomingDeadlines(limit = 8) {
   return db
     .select({
       employeeRef: assignments.employeeRef,
       label: assignmentDeadlines.label,
       dueDate: assignmentDeadlines.dueDate,
-      status: assignmentDeadlines.status,
+      status: sql<string>`
+        case
+          when ${assignmentDeadlines.status} <> 'completed'
+               and ${assignmentDeadlines.dueDate} < current_date
+          then 'overdue'
+          else ${assignmentDeadlines.status}
+        end
+      `,
     })
     .from(assignmentDeadlines)
     .innerJoin(assignments, eq(assignmentDeadlines.assignmentId, assignments.id))

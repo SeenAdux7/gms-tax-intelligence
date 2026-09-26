@@ -22,7 +22,9 @@
     "verify:matching": "tsx scripts/verify-matching.ts",
     "db:seed:assignments": "tsx db/seed-assignments.ts",
     "db:match": "tsx db/compute-matches.ts",
-    "verify:assignments": "tsx scripts/verify-assignments.ts"
+    "verify:assignments": "tsx scripts/verify-assignments.ts",
+    "verify:dashboard": "tsx scripts/verify-dashboard.ts",
+    "verify:all": "npm run verify:matching && npm run verify:lesson && npm run verify:vocab && npm run verify:assignments && npm run verify:dashboard"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",

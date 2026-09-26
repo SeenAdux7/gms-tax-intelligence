@@ -33,7 +33,10 @@ const SHOTS = [
     fullPage: true,
   },
   { name: '05-detail-null-status', path: '/updates/us-ca-nonresident-withholding-discussion', fullPage: true },
-  { name: '06-coming-soon', path: '/vocabulary', fullPage: false },
+  { name: '06-vocabulary', path: '/vocabulary', fullPage: true },
+  { name: '07-dashboard', path: '/dashboard', fullPage: true },
+  { name: '08-assignments', path: '/assignments', fullPage: true },
+  { name: '09-saved', path: '/saved', fullPage: true },
 ] as const
 
 async function shoot(browser: Browser, colorScheme: 'light' | 'dark') {
