@@ -1,5 +1,7 @@
 # Mobility Tax Intelligence
 
+**Live: [gms-tax-intelligence.vercel.app](https://gms-tax-intelligence.vercel.app/updates)** · [source](https://github.com/SeenAdux7/gms-tax-intelligence)
+
 A mobile-first app that tracks tax, payroll, social security and treaty developments affecting employees who work across borders — explains each one in plain language, shows its sources, tests your understanding, and connects it to a synthetic client workforce.
 
 **Educational and informational only. Not professional tax, legal or immigration advice.**
@@ -309,7 +311,11 @@ Cost tracks **how many new articles appear**, not how often you look. Every fetc
 
 ## Known limitations
 
-**The AI stages have never been executed.** No API key was available during development. They are schema-validated, typechecked, and their guardrails are unit tested — but unproven against the real API. This is the largest single gap in the project and the honest headline.
+**Extraction is measured, not assumed.** Scored against the six reviewed samples: **0 fabrications, 0 unverifiable quotes, 6/6 passed, 3 correct abstentions** (it declined to invent a fact three times where the source was silent). The 3 misses were all `populations`, where it omitted a group that is arguably implied rather than named — the safe direction. Rerun with `npm run eval`.
+
+Finding that number required fixing the test, not the model: the first run scored `published_at` as missing on all six samples, and checking showed the expected dates came from feed metadata and appear nowhere in the text the model is shown. See the commit `Run the evaluation for real`.
+
+**What is still unproven:** collection has only run at small volume (a few articles). No development collected from a live source has yet passed the relevance screen — the items sampled so far were genuinely irrelevant (a VAT notice about waste disposal, a UN General Assembly press release), which is the screen working, but it means the full publish path has not been exercised end to end on real data.
 
 **California is not covered.** The Franchise Tax Board returns `403 Forbidden` to every request. Deliberately not worked around: the brief says to respect access restrictions, and disguising the client is not a technical problem to solve. The source row is kept, disabled and documented.
 
