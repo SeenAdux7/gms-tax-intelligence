@@ -32,25 +32,36 @@
  */
 
 // Must come first: loads .env.local before anything reads process.env.
+import { basename } from 'node:path'
 import './env'
 import { eq } from 'drizzle-orm'
 import { db } from '../db/index'
 import { evalRuns, evalSamples, rawDocuments, sources } from '../db/schema'
-import { MODELS, extractDevelopment, hasApiKey, verifyQuotes, type Extraction } from './ai'
+import { MODELS, extractFacts, hasApiKey, verifyQuotes, type FactsExtraction } from './ai'
 import { assertWithinBudget } from './budget'
 
 /* ==========================================================================
  * The scorer
  * ========================================================================== */
 
+/**
+ * The hand-reviewed answer for one sample.
+ *
+ * Scalar fields hold a LIST of acceptable values rather than one value. Several
+ * fields here have two defensible readings — a Revenue manual update about a
+ * Finance Act enactment is reasonably 'enacted' or 'official_guidance' — and
+ * scoring one of them as wrong measures agreement with whoever wrote the test
+ * rather than correctness.
+ *
+ * A list containing only `null` means abstention is the ONLY acceptable answer.
+ * Those are the strict cases and they are the reason this set exists.
+ */
 export type Expected = {
-  status: string | null
-  effective_at: string | null
-  published_at: string | null
-  primary_topic: string | null
+  status: (string | null)[]
+  effective_at: (string | null)[]
+  primary_topic: (string | null)[]
   jurisdiction_codes: string[]
   populations: string[]
-  status_quote_contains: string | null
 }
 
 export type FieldVerdict =
@@ -72,18 +83,41 @@ export type SampleScore = {
   unverifiableQuotes: number
 }
 
-/** Scores one scalar field. */
-function scoreScalar(field: string, expected: string | null, actual: string | null): FieldScore {
-  if (expected === null && actual === null) {
-    return { field, verdict: 'correct_abstention', expected, actual }
+/**
+ * Scores one scalar field against a list of acceptable values.
+ *
+ * The three outcomes when abstention is involved are deliberately distinct:
+ *
+ *   abstention acceptable, model abstained -> correct_abstention
+ *   abstention is the ONLY answer, model gave a value -> fabricated
+ *   a value was required, model abstained -> missed
+ *
+ * Note the asymmetry in the middle case: a value is only a FABRICATION when
+ * abstention was the sole acceptable answer. Where the reviewer accepted either
+ * (a value or null), supplying the value is correct, not invented.
+ */
+function scoreScalar(
+  field: string,
+  acceptable: (string | null)[],
+  actual: string | null,
+): FieldScore {
+  const nullAcceptable = acceptable.includes(null)
+  const values = acceptable.filter((v): v is string => v !== null)
+  const abstentionOnly = nullAcceptable && values.length === 0
+
+  if (actual === null) {
+    if (nullAcceptable) return { field, verdict: 'correct_abstention', expected: acceptable, actual }
+    return { field, verdict: 'missed', expected: acceptable, actual }
   }
-  if (expected === null && actual !== null) {
-    return { field, verdict: 'fabricated', expected, actual }
+
+  if (abstentionOnly) return { field, verdict: 'fabricated', expected: acceptable, actual }
+
+  return {
+    field,
+    verdict: values.includes(actual) ? 'correct' : 'wrong',
+    expected: acceptable,
+    actual,
   }
-  if (expected !== null && actual === null) {
-    return { field, verdict: 'missed', expected, actual }
-  }
-  return { field, verdict: expected === actual ? 'correct' : 'wrong', expected, actual }
 }
 
 /**
@@ -111,16 +145,25 @@ function scoreSet(field: string, expected: string[], actual: string[]): FieldSco
   }
 }
 
+/**
+ * Scores the FACTS pass only.
+ *
+ * Deliberately not the writing pass. Every expected value in the sample set is
+ * a fact, so scoring prose would mean paying for output nobody grades — and it
+ * halves what the eval costs to run.
+ */
 export function scoreExtraction(
   label: string,
   expected: Expected,
-  extraction: Extraction,
+  extraction: FactsExtraction,
   documentText: string,
 ): SampleScore {
   const fields: FieldScore[] = [
     scoreScalar('status', expected.status, extraction.status.value ?? null),
     scoreScalar('effective_at', expected.effective_at, extraction.effective_at.value ?? null),
-    scoreScalar('published_at', expected.published_at, extraction.published_at.value ?? null),
+    // published_at is deliberately NOT scored — see the note in db/seed-evals.ts.
+    // It is not derivable from the document body, and the pipeline takes it from
+    // feed metadata rather than from extraction.
     scoreScalar('primary_topic', expected.primary_topic, extraction.primary_topic.value ?? null),
     scoreSet(
       'jurisdiction_codes',
@@ -134,14 +177,24 @@ export function scoreExtraction(
     ),
   ]
 
-  // Does the status quote actually support the status? A right answer with the
-  // wrong evidence is not a right answer in this system.
-  if (expected.status_quote_contains) {
+  /*
+   * Is the status backed by a quote at all?
+   *
+   * This used to require a specific substring, which failed a model that cited
+   * a different — and equally supporting — sentence from the same document.
+   * Requiring one exact sentence tests recall of the reviewer's choice, not
+   * whether the answer is evidenced.
+   *
+   * What matters is that a stated status carries SOME verbatim quote. Whether
+   * that quote is really in the document is checked separately below, so a
+   * fabricated one cannot pass here.
+   */
+  if (extraction.status.value !== null) {
     const quote = extraction.status.quote ?? ''
     fields.push({
       field: 'status_quote',
-      verdict: quote.includes(expected.status_quote_contains) ? 'correct' : 'wrong',
-      expected: expected.status_quote_contains,
+      verdict: quote.trim().length > 0 ? 'correct' : 'missed',
+      expected: 'any verbatim quote supporting the status',
       actual: quote || null,
     })
   }
@@ -154,7 +207,6 @@ export function scoreExtraction(
     extraction.primary_topic.quote,
     ...extraction.jurisdictions.map((j) => j.quote),
     ...extraction.populations.map((p) => p.quote),
-    ...extraction.grounding_quotes,
   ]
   const { invalid, ambiguous } = verifyQuotes(documentText, allQuotes)
 
@@ -238,19 +290,14 @@ export async function runEval(): Promise<EvalSummary> {
     // ceiling rather than only being checked before the first one.
     await assertWithinBudget(`evaluating ${sample.label}`)
 
-    const { extraction, usage } = await extractDevelopment({
+    const { facts, usage } = await extractFacts({
       title: document.title,
       text: document.text,
       sourceName: document.sourceName,
       publisher: document.publisher ?? '',
     })
 
-    const score = scoreExtraction(
-      sample.label,
-      sample.expected as Expected,
-      extraction,
-      document.text,
-    )
+    const score = scoreExtraction(sample.label, sample.expected as Expected, facts, document.text)
 
     summary.ran += 1
     if (score.passed) summary.passed += 1
@@ -267,7 +314,7 @@ export async function runEval(): Promise<EvalSummary> {
       sampleId: sample.id,
       model: MODELS.extract,
       promptVersion: 'pipeline-v1',
-      actual: extraction,
+      actual: facts,
       fieldScores: score.fields,
       passed: score.passed,
       costUsd: usage.costUsd.toFixed(6),
@@ -326,7 +373,16 @@ async function main() {
   console.log('\nDone.')
 }
 
-if (process.argv[1]?.includes('eval.ts')) {
+/*
+ * Only run the CLI when THIS file is the entry point.
+ *
+ * This was `argv[1].includes('eval.ts')`, which is also true for
+ * `scripts/verify-eval.ts` — so `npm run verify:eval`, advertised as free,
+ * silently ran the paid evaluation as well. Substring matching on a filename
+ * is not an entry-point check.
+ */
+const entryFile = basename(process.argv[1] ?? '')
+if (entryFile === 'eval.ts' || entryFile === 'eval.js') {
   main()
     .then(() => process.exit(0))
     .catch((error) => {

@@ -220,7 +220,33 @@ const QuestionSchema = z.object({
   options: z.array(OptionSchema).min(3).max(4),
 })
 
-const ExtractionSchema = z.object({
+/*
+ * TWO SCHEMAS, NOT ONE — and not by choice at first.
+ *
+ * A single schema covering facts, both summaries, four impact fields and a
+ * complete lesson with nested questions and options was rejected by the API:
+ *
+ *   400 invalid_request_error
+ *   "The compiled grammar is too large, which would cause performance issues.
+ *    Simplify your tool schemas or reduce the number of strict tools."
+ *
+ * Structured outputs compile the schema into a grammar that constrains
+ * generation, and a deeply nested schema with several enums and an array of
+ * objects containing an array of objects blows past the size limit. Nothing in
+ * the documentation predicts where that limit falls; it surfaced on the first
+ * real call.
+ *
+ * Splitting it turns out to be better design regardless:
+ *
+ *   - The facts call is the one that must be strictly validated. It is now
+ *     small enough to reason about, and it is the only call the evaluation set
+ *     needs — so the eval both costs less and tests exactly what it scores.
+ *   - A malformed lesson no longer discards correctly extracted facts.
+ *   - The second call reuses the first call's document prefix from the prompt
+ *     cache, so sending the document twice costs far less than twice.
+ */
+
+const FactsSchema = z.object({
   headline: z.string().describe('A short factual headline, under 90 characters.'),
   status: Sourced(STATUS),
   published_at: Sourced(z.string()).describe('ISO date, YYYY-MM-DD.'),
@@ -247,7 +273,10 @@ const ExtractionSchema = z.object({
     .string()
     .nullable()
     .describe('What remains unresolved, and what would be needed to resolve it. Null if nothing.'),
+})
 
+/** The writing pass. Looser by nature: prose and questions, not facts. */
+const AnalysisSchema = z.object({
   learn_summary: z.string().describe('Plain language, no jargon. 3-5 sentences.'),
   professional_summary: z.string().describe('Concise and technical. Dates, thresholds, scope.'),
   employee_effect: z.string(),
@@ -267,8 +296,13 @@ const ExtractionSchema = z.object({
   lesson_questions: z.array(QuestionSchema).min(2).max(3),
 })
 
-export type Extraction = z.infer<typeof ExtractionSchema>
+export type FactsExtraction = z.infer<typeof FactsSchema>
+export type AnalysisExtraction = z.infer<typeof AnalysisSchema>
+
+/** What the rest of the pipeline consumes: both passes, combined. */
+export type Extraction = FactsExtraction & AnalysisExtraction
 export type ExtractResult = { extraction: Extraction; usage: Usage }
+export type FactsResult = { facts: FactsExtraction; usage: Usage }
 
 const EXTRACT_PROMPT = `You prepare Global Mobility Services briefings from primary tax documents, for an audience that is learning the field.
 
@@ -294,45 +328,148 @@ Incorrect options need why_weaker: a specific reason, not "this is wrong".
 
 The scenario in lesson_apply_it must use an obviously invented company name and must end by asking what the reader would need to check — not by asserting an answer.`
 
-export async function extractDevelopment(input: {
+/**
+ * The document block, shared by both passes.
+ *
+ * `cache_control` marks it cacheable so the second call reads the document
+ * from cache instead of paying full input price for it again. The two calls
+ * happen seconds apart, well inside the 5-minute cache window, which is the
+ * one situation where prompt caching clearly pays here.
+ */
+function documentBlock(input: {
   title: string | null
   text: string
   sourceName: string
   publisher: string
-}): Promise<ExtractResult> {
+}) {
+  return {
+    type: 'text' as const,
+    text:
+      `Source: ${input.sourceName} (${input.publisher})
+` +
+      `Title: ${input.title ?? '(none)'}
+
+` +
+      `--- document begins ---
+${truncateForModel(input.text)}
+--- document ends ---`,
+    cache_control: { type: 'ephemeral' as const },
+  }
+}
+
+export type DocumentInput = {
+  title: string | null
+  text: string
+  sourceName: string
+  publisher: string
+}
+
+/**
+ * Pass 1 — the facts.
+ *
+ * The call that must be right. Small strict schema, every fact paired with a
+ * verbatim quote. This is the only pass the evaluation set scores, so it can be
+ * measured on its own without paying for prose nobody is grading.
+ */
+export async function extractFacts(input: DocumentInput): Promise<FactsResult> {
   const response = await getClient().messages.parse({
     model: MODELS.extract,
-    max_tokens: 16_000,
+    max_tokens: 8_000,
     system: EXTRACT_PROMPT,
-    // Effort high (the default) rather than max: this is extraction and
-    // careful writing, not a hard reasoning problem, and max roughly doubles
-    // the token spend for gains we cannot measure without the eval set.
-    output_config: { effort: 'high', format: zodOutputFormat(ExtractionSchema) },
-    messages: [
-      {
-        role: 'user',
-        content:
-          `Source: ${input.sourceName} (${input.publisher})\n` +
-          `Title: ${input.title ?? '(none)'}\n\n` +
-          `--- document begins ---\n${truncateForModel(input.text)}\n--- document ends ---`,
-      },
-    ],
+    output_config: { effort: 'high', format: zodOutputFormat(FactsSchema) },
+    messages: [{ role: 'user', content: [documentBlock(input)] }],
   })
 
-  // A refusal on tax guidance would be surprising, but check before reading
-  // content — `stop_reason: 'refusal'` returns HTTP 200 with no usable body.
   if (response.stop_reason === 'refusal') {
     throw new Error(
-      `Extraction refused: ${response.stop_details?.explanation ?? 'no explanation given'}`,
+      `Fact extraction refused: ${response.stop_details?.explanation ?? 'no explanation given'}`,
     )
   }
 
   const parsed = response.parsed_output
-  if (!parsed) {
-    throw new Error('Extraction response could not be parsed against the schema.')
+  if (!parsed) throw new Error('Fact extraction could not be parsed against the schema.')
+
+  return { facts: parsed, usage: usageOf(response, MODELS.extract) }
+}
+
+/**
+ * Pass 2 — the writing and the lesson.
+ *
+ * Receives the facts from pass 1 so the prose cannot contradict them, and so
+ * the lesson knows which fields were genuinely absent — which is what lets it
+ * write an honest "not enough information" question instead of inventing an
+ * answer.
+ */
+export async function writeAnalysis(
+  input: DocumentInput,
+  facts: FactsExtraction,
+): Promise<{ analysis: AnalysisExtraction; usage: Usage }> {
+  const absent = Object.entries({
+    status: facts.status.value,
+    effective_at: facts.effective_at.value,
+    action_deadline_at: facts.action_deadline_at.value,
+    published_at: facts.published_at.value,
+  })
+    .filter(([, value]) => value === null)
+    .map(([field]) => field)
+
+  const factsBrief =
+    `Facts already extracted from this document, with the sentence supporting each:
+` +
+    JSON.stringify(facts, null, 2) +
+    (absent.length > 0
+      ? `
+
+The source does NOT state: ${absent.join(', ')}. ` +
+        `Do not supply values for these in your writing. Where one of them matters to a ` +
+        `question, the correct answer is that there is not enough information to decide.`
+      : '')
+
+  const response = await getClient().messages.parse({
+    model: MODELS.extract,
+    max_tokens: 12_000,
+    system: EXTRACT_PROMPT,
+    output_config: { effort: 'high', format: zodOutputFormat(AnalysisSchema) },
+    messages: [
+      {
+        role: 'user',
+        // Document first so it matches pass 1's cached prefix byte for byte;
+        // anything before it would invalidate the cache.
+        content: [documentBlock(input), { type: 'text' as const, text: factsBrief }],
+      },
+    ],
+  })
+
+  if (response.stop_reason === 'refusal') {
+    throw new Error(
+      `Analysis refused: ${response.stop_details?.explanation ?? 'no explanation given'}`,
+    )
   }
 
-  return { extraction: parsed, usage: usageOf(response, MODELS.extract) }
+  const parsed = response.parsed_output
+  if (!parsed) throw new Error('Analysis could not be parsed against the schema.')
+
+  return { analysis: parsed, usage: usageOf(response, MODELS.extract) }
+}
+
+/**
+ * Both passes, combined — what the collection pipeline calls.
+ *
+ * Usage is summed across the two calls so recorded cost stays accurate.
+ */
+export async function extractDevelopment(input: DocumentInput): Promise<ExtractResult> {
+  const { facts, usage: factsUsage } = await extractFacts(input)
+  const { analysis, usage: analysisUsage } = await writeAnalysis(input, facts)
+
+  return {
+    extraction: { ...facts, ...analysis },
+    usage: {
+      model: MODELS.extract,
+      inputTokens: factsUsage.inputTokens + analysisUsage.inputTokens,
+      outputTokens: factsUsage.outputTokens + analysisUsage.outputTokens,
+      costUsd: factsUsage.costUsd + analysisUsage.costUsd,
+    },
+  }
 }
 
 /* ==========================================================================

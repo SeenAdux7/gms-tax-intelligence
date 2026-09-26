@@ -37,7 +37,8 @@
     "verify:eval": "tsx scripts/verify-eval.ts",
     "check:key": "tsx scripts/check-key.ts",
     "spend": "tsx scripts/spend.ts",
-    "verify:budget": "tsx scripts/verify-budget.ts"
+    "verify:budget": "tsx scripts/verify-budget.ts",
+    "eval:report": "tsx scripts/eval-report.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

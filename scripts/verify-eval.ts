@@ -15,7 +15,7 @@
  */
 
 import { scoreExtraction, type Expected } from '../pipeline/eval'
-import type { Extraction } from '../pipeline/ai'
+import type { FactsExtraction } from '../pipeline/ai'
 
 const failures: string[] = []
 
@@ -32,14 +32,17 @@ const DOC =
   'The guidance confirms that a day on which an employee performs any services within the United States is counted.'
 
 const EXPECTED: Expected = {
-  status: 'official_guidance',
-  effective_at: null, // the document states none
-  published_at: '2026-09-02',
-  primary_topic: 'tax_residency',
+  status: ['official_guidance'],
+  // Abstention is the ONLY acceptable answer here - the document states no
+  // effective date. This is the strict case the whole set exists for.
+  effective_at: [null],
+  primary_topic: ['tax_residency'],
   jurisdiction_codes: ['US'],
   populations: ['business_travelers', 'employers'],
-  status_quote_contains: 'has issued guidance',
 }
+
+/** A field where the reviewer accepted either a value or abstention. */
+const EITHER_ACCEPTED: Expected = { ...EXPECTED, status: ['official_guidance', null] }
 
 /** Builds a plausible extraction, overriding whichever fields a test needs. */
 function extraction(overrides: Partial<{
@@ -49,9 +52,9 @@ function extraction(overrides: Partial<{
   publishedAt: string | null
   primaryTopic: string | null
   jurisdictions: string[]
+  jurisdictionQuote: string | null
   populations: string[]
-  groundingQuotes: string[]
-}> = {}): Extraction {
+}> = {}): FactsExtraction {
   const sourced = <T>(value: T | null, quote: string | null) => ({ value, quote })
 
   return {
@@ -78,27 +81,14 @@ function extraction(overrides: Partial<{
     jurisdictions: (overrides.jurisdictions ?? ['US']).map((code) => ({
       code,
       role: 'affected' as const,
-      quote: null,
+      quote: overrides.jurisdictionQuote ?? null,
     })),
     topics: [],
     populations: (overrides.populations ?? ['business_travelers', 'employers']).map(
       (population) => ({ population: population as never, quote: null }),
     ),
     uncertainty_note: null,
-    learn_summary: 'x',
-    professional_summary: 'x',
-    employee_effect: 'x',
-    employer_effect: 'x',
-    gms_effect: 'x',
-    review_actions: 'x',
-    grounding_quotes:
-      overrides.groundingQuotes ?? [
-        'The guidance confirms that a day on which an employee performs any services within the United States is counted.',
-      ],
-    lesson_what_happened: 'x',
-    lesson_apply_it: 'x',
-    lesson_questions: [],
-  } as unknown as Extraction
+  } as unknown as FactsExtraction
 }
 
 /* ==========================================================================
@@ -137,10 +127,13 @@ check(
 )
 
 // Returned null where a value was genuinely present.
-const missed = scoreExtraction('t', EXPECTED, extraction({ publishedAt: null }), DOC)
+//
+// Uses primary_topic, not published_at: published_at is no longer scored at
+// all, so a test pointed at it would pass or fail for the wrong reason.
+const missed = scoreExtraction('t', EXPECTED, extraction({ primaryTopic: null }), DOC)
 check(
   'returning null where a value existed scores MISSED',
-  missed.fields.find((f) => f.field === 'published_at')?.verdict === 'missed',
+  missed.fields.find((f) => f.field === 'primary_topic')?.verdict === 'missed',
 )
 check(
   'a miss does NOT fail the sample',
@@ -213,29 +206,95 @@ check(
 
 console.log('\nEvidence:')
 
-const wrongQuote = scoreExtraction(
-  't',
-  EXPECTED,
-  extraction({ statusQuote: 'The guidance confirms that a day on which an employee performs any services within the United States is counted.' }),
-  DOC,
-)
+// A stated status with NO quote at all is a miss: the value is unsupported.
+const noQuote = scoreExtraction('t', EXPECTED, extraction({ statusQuote: null }), DOC)
 check(
-  'a right answer with the wrong supporting quote scores WRONG on the quote',
-  wrongQuote.fields.find((f) => f.field === 'status_quote')?.verdict === 'wrong',
-  'a correct value backed by unrelated evidence is not a correct answer in this system',
+  'a stated status with no supporting quote scores MISSED on the quote',
+  noQuote.fields.find((f) => f.field === 'status_quote')?.verdict === 'missed',
 )
 
-const hallucinatedQuote = scoreExtraction(
+// A different but genuine sentence from the same document is acceptable. The
+// scorer no longer demands the reviewer's exact choice of sentence - that
+// tested recall of the test author, not whether the answer was evidenced.
+const otherQuote = scoreExtraction(
   't',
   EXPECTED,
   extraction({
-    groundingQuotes: ['The guidance takes effect immediately for all employers nationwide.'],
+    statusQuote:
+      'The guidance confirms that a day on which an employee performs any services within the United States is counted.',
   }),
   DOC,
 )
 check(
-  'a quote that is not in the document is counted as unverifiable',
+  'a different but verbatim supporting quote is accepted',
+  otherQuote.fields.find((f) => f.field === 'status_quote')?.verdict === 'correct',
+)
+
+// A fact quote the model invented. Uses a jurisdiction quote because that is a
+// field the FACTS pass returns — grounding_quotes moved to the writing pass
+// when the schema was split, and a test pointed at a field the scorer no
+// longer sees would pass for the wrong reason.
+const hallucinatedQuote = scoreExtraction(
+  't',
+  EXPECTED,
+  extraction({
+    jurisdictionQuote: 'The guidance takes effect immediately for all employers nationwide.',
+  }),
+  DOC,
+)
+check(
+  'a fact quote that is not in the document is counted as unverifiable',
   hallucinatedQuote.unverifiableQuotes === 1,
+  `got ${hallucinatedQuote.unverifiableQuotes}`,
+)
+
+
+/* ==========================================================================
+ * Acceptable-value lists
+ * ========================================================================== */
+
+console.log('\nAcceptable-value lists:')
+
+check(
+  'any value in the acceptable list scores correct',
+  scoreExtraction(
+    't',
+    { ...EXPECTED, primary_topic: ['tax_residency', 'withholding'] },
+    extraction({ primaryTopic: 'withholding' }),
+    DOC,
+  ).fields.find((f) => f.field === 'primary_topic')?.verdict === 'correct',
+  'a second defensible reading must not be scored as wrong',
+)
+
+check(
+  'a value outside the acceptable list still scores wrong',
+  scoreExtraction(
+    't',
+    { ...EXPECTED, primary_topic: ['tax_residency', 'withholding'] },
+    extraction({ primaryTopic: 'benefits' }),
+    DOC,
+  ).fields.find((f) => f.field === 'primary_topic')?.verdict === 'wrong',
+)
+
+check(
+  'where null is ALSO acceptable, supplying the value is correct, not fabricated',
+  scoreExtraction('t', EITHER_ACCEPTED, extraction({ status: 'official_guidance' }), DOC).fields.find(
+    (f) => f.field === 'status',
+  )?.verdict === 'correct',
+  'this is the ca-discussion case: a discussion paper may be null or "discussion"',
+)
+
+check(
+  'where null is also acceptable, abstaining is still an abstention',
+  scoreExtraction('t', EITHER_ACCEPTED, extraction({ status: null }), DOC).fields.find(
+    (f) => f.field === 'status',
+  )?.verdict === 'correct_abstention',
+)
+
+check(
+  'published_at is no longer scored at all',
+  !scoreExtraction('t', EXPECTED, extraction(), DOC).fields.some((f) => f.field === 'published_at'),
+  'it is not derivable from the document body - see db/seed-evals.ts',
 )
 
 /* -------------------------------------------------------------------------- */

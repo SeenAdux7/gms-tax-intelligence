@@ -27,6 +27,7 @@
  */
 
 // Must come first: loads .env.local before anything reads process.env.
+import { basename } from 'node:path'
 import './env'
 import { and, eq, gte, inArray } from 'drizzle-orm'
 import { db } from '../db/index'
@@ -938,7 +939,10 @@ async function main() {
 }
 
 // Only run the CLI when executed directly, not when imported by the API route.
-if (process.argv[1]?.includes('run.ts') || process.argv[1]?.includes('run.js')) {
+// Exact entry-point match, not a substring — see the note in pipeline/eval.ts
+// for what a loose check cost.
+const entryFile = basename(process.argv[1] ?? '')
+if (entryFile === 'run.ts' || entryFile === 'run.js') {
   main()
     .then(() => process.exit(0))
     .catch((error) => {
