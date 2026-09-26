@@ -34,7 +34,8 @@
     "icons": "tsx scripts/make-icons.ts",
     "db:seed:evals": "tsx db/seed-evals.ts",
     "eval": "tsx pipeline/eval.ts",
-    "verify:eval": "tsx scripts/verify-eval.ts"
+    "verify:eval": "tsx scripts/verify-eval.ts",
+    "check:key": "tsx scripts/check-key.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

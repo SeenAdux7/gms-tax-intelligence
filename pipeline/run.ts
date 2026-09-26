@@ -26,6 +26,8 @@
  * throwing it away, so a borderline item can be looked at rather than lost.
  */
 
+// Must come first: loads .env.local before anything reads process.env.
+import './env'
 import { and, eq, gte, inArray } from 'drizzle-orm'
 import { db } from '../db/index'
 import {

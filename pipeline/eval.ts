@@ -31,6 +31,8 @@
  * cancel out, which is exactly backwards: they are not equally bad.
  */
 
+// Must come first: loads .env.local before anything reads process.env.
+import './env'
 import { eq } from 'drizzle-orm'
 import { db } from '../db/index'
 import { evalRuns, evalSamples, rawDocuments, sources } from '../db/schema'
