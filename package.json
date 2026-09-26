@@ -13,12 +13,16 @@
     "db:studio": "drizzle-kit studio",
     "db:seed:sources": "tsx db/seed-sources.ts",
     "db:seed:content": "tsx db/seed-content.ts",
-    "db:seed": "npm run db:seed:sources && npm run db:seed:content && npm run db:seed:lessons",
+    "db:seed": "npm run db:seed:sources && npm run db:seed:content && npm run db:seed:lessons && npm run db:seed:assignments && npm run db:match",
     "db:reset": "node -e \"require('fs').rmSync('./.pglite',{recursive:true,force:true});console.log('local database reset')\"",
     "screenshot": "tsx scripts/screenshot.ts",
     "db:seed:lessons": "tsx db/seed-lessons.ts",
     "verify:lesson": "tsx scripts/verify-lesson.ts",
-    "verify:vocab": "tsx scripts/verify-vocab.ts"
+    "verify:vocab": "tsx scripts/verify-vocab.ts",
+    "verify:matching": "tsx scripts/verify-matching.ts",
+    "db:seed:assignments": "tsx db/seed-assignments.ts",
+    "db:match": "tsx db/compute-matches.ts",
+    "verify:assignments": "tsx scripts/verify-assignments.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",

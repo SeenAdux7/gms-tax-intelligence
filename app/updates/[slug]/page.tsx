@@ -25,6 +25,12 @@ import type { Metadata } from 'next'
 import { getDevelopment } from '../../lib/queries'
 import { getTermsForDevelopment } from '../../lib/vocab-queries'
 import { isSaved } from '../../lib/saved-queries'
+import {
+  ASSIGNMENT_TYPE_LABELS,
+  MATCH_REASON_LABELS,
+  getMatchesForDevelopment,
+} from '../../lib/assignment-queries'
+import { MATCH_DISCLAIMER } from '../../lib/matching'
 import { SaveButton } from '../../components/SaveButton'
 import {
   POPULATION_LABELS,
@@ -96,9 +102,10 @@ export default async function UpdateDetailPage(props: PageProps<'/updates/[slug]
   const development = await getDevelopment(slug)
   if (!development) notFound()
 
-  const [terms, saved] = await Promise.all([
+  const [terms, saved, matches] = await Promise.all([
     getTermsForDevelopment(slug),
     isSaved('development', development.id),
+    getMatchesForDevelopment(slug),
   ])
 
   const mode: Mode = search.mode === 'professional' ? 'professional' : 'learn'
@@ -372,6 +379,69 @@ export default async function UpdateDetailPage(props: PageProps<'/updates/[slug]
           {VERIFICATION_LABELS[development.verification].explain}
         </p>
       </section>
+
+      {/* --- potentially affected assignments ---------------------------
+          The fictional client layer. Deliberately placed AFTER the sources:
+          this is the most speculative content on the page, and it should be
+          read once the reader knows what the source actually says.
+
+          Every item is labelled a potential review item, and the reason chips
+          show which signals fired — a match that cannot explain itself is
+          indistinguishable from a guess. */}
+      {matches.length > 0 && (
+        <section className="px-4 pt-7">
+          <SectionHeading
+            title={`${matches.length} synthetic ${matches.length === 1 ? 'assignment' : 'assignments'} may need review`}
+            note={MATCH_DISCLAIMER}
+          />
+          <ul className="space-y-2">
+            {matches.map((match) => (
+              <li
+                key={match.employeeRef}
+                className="rounded-xl border border-line bg-surface-raised p-3.5"
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <Link
+                    href={`/assignments/${match.employeeRef}`}
+                    className="font-mono text-[13px] font-semibold text-accent hover:underline"
+                  >
+                    {match.employeeRef}
+                  </Link>
+                  <span className="shrink-0 text-[11px] text-muted">
+                    {shortJurisdiction(match.homeJurisdiction)} →{' '}
+                    {shortJurisdiction(match.hostJurisdiction)}
+                  </span>
+                </div>
+
+                <p className="mt-0.5 text-[11px] text-muted">
+                  {ASSIGNMENT_TYPE_LABELS[match.type] ?? match.type}
+                </p>
+
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {match.reasons.map((reason) => (
+                    <span
+                      key={reason}
+                      className="rounded bg-surface px-1.5 py-0.5 text-[10px] font-medium text-muted ring-1 ring-line"
+                    >
+                      {MATCH_REASON_LABELS[reason]}
+                    </span>
+                  ))}
+                </div>
+
+                <p className="mt-2 text-[12px] leading-relaxed whitespace-pre-line text-foreground/85">
+                  {match.explanation}
+                </p>
+              </li>
+            ))}
+          </ul>
+          <Link
+            href="/assignments"
+            className="mt-3 inline-block text-[12px] font-medium text-accent hover:underline"
+          >
+            See the whole synthetic workforce →
+          </Link>
+        </section>
+      )}
 
       {/* Tappable vocabulary. "Terms mentioned in an update should be tappable
           and linked to their vocabulary cards." Placed after the sources rather

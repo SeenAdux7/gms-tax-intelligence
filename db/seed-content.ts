@@ -334,13 +334,26 @@ const DEVELOPMENTS: SeedDevelopment[] = [
     confidence: 'medium',
     uncertaintyNote:
       'This is a proposal in a public comment period, not a rule. It may be amended or dropped entirely, and no effective date has been proposed. It should be monitored, not acted on.',
+    // Tagged US-NY only, NOT US.
+    //
+    // Tagging the parent country on a state-level development is tempting —
+    // the source does talk about nonresident employees generally — but it is
+    // both redundant and harmful. Redundant because the feed filter already
+    // walks the hierarchy, so filtering by "US" picks up New York items via
+    // `parent_code`. Harmful because the matcher treats a parent jurisdiction
+    // as covering all its children, so tagging US made this New York proposal
+    // match 9 of 10 assignments, including ones in California and Washington
+    // that it cannot possibly affect.
+    //
+    // Rule: tag the jurisdiction the development actually applies to. Let the
+    // hierarchy do the rest.
     jurisdictions: [
       { code: 'US-NY', role: 'affected', quote: 'nonresident employees who work remotely' },
-      { code: 'US', role: 'affected', quote: 'allocation of wages earned by nonresident employees' },
+      { code: 'US-NY', role: 'host', quote: 'a day worked outside New York at the employee\'s own convenience is generally treated as a New York workday' },
     ],
     topics: [
       { topic: 'individual_income_tax', quote: 'allocation of wages earned by nonresident employees who work remotely' },
-      { topic: 'payroll', quote: 'a day worked outside New York at the employee\'s own convenience is generally treated as a New York workday' },
+      { topic: 'payroll', quote: 'Under the current convenience-of-the-employer rule, a day worked outside New York at the employee\'s own convenience is generally treated as a New York workday.' },
       { topic: 'assignment_policy', quote: 'the employer establishes a bona fide office location outside New York and the employee is assigned to it' },
     ],
     populations: [
