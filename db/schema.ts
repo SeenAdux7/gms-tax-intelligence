@@ -234,6 +234,18 @@ export const sources = pgTable(
     feedKind: sourceFeedKind('feed_kind').notNull(),
     feedUrl: text('feed_url').notNull(),
     homepageUrl: text('homepage_url'),
+
+    /**
+     * For `html_scrape` sources only: a regular expression matched against a
+     * link's path to decide whether it looks like an article.
+     *
+     * Configuration rather than code, because the shape varies per site and
+     * hardcoding one pattern breaks the next source added. IRS articles sit
+     * under `/newsroom/`, Irish eBriefs under `/en/tax-professionals/ebrief/` —
+     * no single built-in pattern covers both, and a source list that cannot
+     * express this forces a code change per jurisdiction.
+     */
+    articleLinkPattern: text('article_link_pattern'),
     language: text('language').notNull().default('en'),
     enabled: boolean('enabled').notNull().default(true),
 

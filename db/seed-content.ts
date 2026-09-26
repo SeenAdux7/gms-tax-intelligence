@@ -221,7 +221,7 @@ const DEVELOPMENTS: SeedDevelopment[] = [
   {
     slug: 'us-remote-work-presence-guidance',
     headline: 'US guidance addresses counting workdays for employees working temporarily across borders',
-    sourceName: 'IRS Newsroom',
+    sourceName: 'IRS newsroom',
     document: {
       url: 'https://www.irs.gov/newsroom/guidance-on-counting-days-of-presence-for-cross-border-remote-work',
       title: 'Guidance on counting days of presence for cross-border remote work',
@@ -475,7 +475,7 @@ const DEVELOPMENTS: SeedDevelopment[] = [
   {
     slug: 'ca-reg-102-waiver-process',
     headline: 'Canada streamlines Regulation 102 withholding waivers for short-term assignees',
-    sourceName: 'Canada Revenue Agency — newsroom',
+    sourceName: 'Government of Canada — news releases',
     document: {
       url: 'https://www.canada.ca/en/revenue-agency/news/2026/05/regulation-102-waiver-streamlined-process.html',
       title: 'Streamlined process for Regulation 102 withholding waivers',

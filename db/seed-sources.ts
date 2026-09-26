@@ -46,70 +46,109 @@ const JURISDICTIONS: JurisdictionSeed[] = [
  * Sources, in the brief's priority order
  * -------------------------------------------------------------------------- */
 
+/*
+ * ALL URLS BELOW WERE VERIFIED LIVE on 2026-09-26 with `npm run probe:feeds`.
+ * Re-run that script if a source starts failing — it reports status, whether
+ * conditional requests are supported, and how many items each shape yields.
+ *
+ * The first pass of this file guessed these URLs and most were wrong: the IRS
+ * has no RSS feed at all (every candidate 404'd), Irish Revenue's advertised
+ * XML path serves HTML, and the CRA's own department filter returns zero
+ * entries. Guessing feed URLs from how a site "should" be organised does not
+ * work; probing does.
+ */
 const SOURCES: SourceSeed[] = [
   /* --- Tier 1: primary official ---------------------------------------- */
   {
-    name: 'IRS Newsroom',
+    name: 'IRS newsroom',
     publisher: 'Internal Revenue Service',
     jurisdictionCode: 'US',
     tier: 'primary_official',
-    feedKind: 'rss',
-    feedUrl: 'https://www.irs.gov/newsroom/rss',
+    // VERIFIED: the IRS publishes no RSS or Atom feed. Every candidate
+    // (/newsroom/rss, /uac/rss-news-releases, /about-irs/rss-feeds) returns
+    // 404. The current-month news-release index is the only machine-readable
+    // entry point, and it does at least support ETag and Last-Modified, so
+    // conditional requests still work.
+    feedKind: 'html_scrape',
+    feedUrl: 'https://www.irs.gov/newsroom/news-releases-for-current-month',
+    articleLinkPattern: '/newsroom/',
     homepageUrl: 'https://www.irs.gov/newsroom',
     notes:
-      'US federal announcements, revenue procedures, and notices. High volume; most items are ' +
-      'domestic and screened out. Watch for withholding, residency, and treaty items.',
+      'No RSS exists — HTML index, but with working ETag/Last-Modified. High volume and mostly ' +
+      'domestic, so the relevance screen does the heavy lifting. Watch for withholding, ' +
+      'residency and treaty items.',
   },
   {
     name: 'GOV.UK — HMRC publications',
     publisher: 'HM Revenue & Customs',
     jurisdictionCode: 'GB',
     tier: 'primary_official',
-    // GOV.UK exposes a genuine JSON content API with no key and no rate limit
-    // worth worrying about. It is the single best mobility-tax source available
-    // and the reason the UK is in v1.
-    feedKind: 'govuk_content_api',
-    feedUrl: 'https://www.gov.uk/api/content/government/organisations/hm-revenue-customs',
+    // VERIFIED: the Atom feed returns 20 entries with an ETag. Chosen over the
+    // JSON content API, which also works but nests documents several levels
+    // deep in a 117KB payload whose shape is undocumented — the Atom feed is a
+    // stable contract for the same content, and article bodies are fetched from
+    // the JSON API per-item anyway (see fetchArticle).
+    feedKind: 'atom',
+    feedUrl: 'https://www.gov.uk/government/organisations/hm-revenue-customs.atom',
     homepageUrl: 'https://www.gov.uk/government/organisations/hm-revenue-customs',
     notes:
-      'Structured JSON, stable schema, includes publication and updated timestamps plus the full ' +
-      'body text. Supports conditional GET properly.',
+      'The best-behaved source in the set: real feed, honest timestamps, proper conditional ' +
+      'requests, and per-article JSON via /api/content. The reason the UK is in v1.',
   },
   {
     name: 'Irish Revenue — eBriefs',
     publisher: 'Revenue Commissioners (Ireland)',
     jurisdictionCode: 'IE',
     tier: 'primary_official',
-    feedKind: 'rss',
-    feedUrl: 'https://www.revenue.ie/en/corporate/rss/ebrief.xml',
+    // VERIFIED: /en/corporate/rss/ebrief.xml returns HTML, not XML — the
+    // advertised RSS path does not serve a feed. The eBrief index page does
+    // work (187 links), so it is scraped. Note it sends no ETag or
+    // Last-Modified, so this source cannot benefit from conditional requests
+    // and is re-parsed every run. Cheap, because parsing is free and only new
+    // URLs proceed.
+    feedKind: 'html_scrape',
+    feedUrl: 'https://www.revenue.ie/en/tax-professionals/ebrief/index.aspx',
+    articleLinkPattern: '/ebrief/',
     homepageUrl: 'https://www.revenue.ie/en/tax-professionals/ebrief/index.aspx',
     notes:
       'Low volume, high signal — eBriefs are practitioner-targeted and frequently cover PAYE, ' +
-      'cross-border workers, and special assignee relief (SARP).',
+      'cross-border workers, and SARP. No conditional-request support.',
   },
   {
-    name: 'Canada Revenue Agency — newsroom',
-    publisher: 'Canada Revenue Agency',
+    name: 'Government of Canada — news releases',
+    publisher: 'Government of Canada',
     jurisdictionCode: 'CA',
     tier: 'primary_official',
-    feedKind: 'rss',
-    feedUrl: 'https://api.io.canada.ca/io-server/gc/news/en/v2?dept=canadarevenueagency&format=atom',
+    // VERIFIED: filtering by dept=canadarevenueagency returns ZERO entries —
+    // the department key is wrong or CRA does not publish under it. The
+    // unfiltered news-release feed returns 20 entries with an ETag, so we take
+    // all departments and let the relevance screen reject the rest.
+    //
+    // That trade is deliberate: a broader feed costs a few more Haiku calls
+    // (~$0.0025 each) and catches CRA items reliably, whereas a filter that
+    // silently returns nothing looks like "no news" forever. Failing loud beats
+    // failing empty.
+    feedKind: 'atom',
+    feedUrl:
+      'https://api.io.canada.ca/io-server/gc/news/en/v2?type=newsreleases&sort=publishedDate&orderBy=desc&pick=20&format=atom',
     homepageUrl: 'https://www.canada.ca/en/revenue-agency/news.html',
     notes:
-      'Government of Canada news API, Atom format. Filter by department. Useful for US-Canada ' +
-      'cross-border commuter and waiver items.',
+      'All-department feed, not CRA-only: the department filter returns zero results. Noisier ' +
+      'but reliable. Useful for US-Canada commuter and Regulation 102 waiver items.',
   },
   {
     name: 'New York State Department of Taxation and Finance',
     publisher: 'NYS Department of Taxation and Finance',
     jurisdictionCode: 'US-NY',
     tier: 'primary_official',
+    // VERIFIED: 200, 90 links, no conditional-request support.
     feedKind: 'html_scrape',
     feedUrl: 'https://www.tax.ny.gov/press/',
+    articleLinkPattern: '/press/',
     homepageUrl: 'https://www.tax.ny.gov/',
     notes:
-      'No RSS — needs an HTML adapter, so expect this one to break occasionally. Included because ' +
-      'NY convenience-of-the-employer rules are central to US state-to-state mobility.',
+      'No RSS — HTML adapter, expect occasional breakage after a redesign. Included because NY ' +
+      'convenience-of-the-employer rules are central to US state-to-state mobility.',
   },
   {
     name: 'California Franchise Tax Board — newsroom',
@@ -118,10 +157,25 @@ const SOURCES: SourceSeed[] = [
     tier: 'primary_official',
     feedKind: 'html_scrape',
     feedUrl: 'https://www.ftb.ca.gov/about-ftb/newsroom/index.html',
+    articleLinkPattern: '/newsroom/',
     homepageUrl: 'https://www.ftb.ca.gov/',
+    // DISABLED, and not for a technical reason.
+    //
+    // Every FTB URL returns 403 Forbidden to an identified, single-request,
+    // conditional GET. That is a deliberate access restriction, and the brief
+    // is explicit: "Respect access restrictions and avoid depending on
+    // paywalled or blocked sources for the core experience."
+    //
+    // Working around it would mean disguising the client, which is not a
+    // technical problem to solve but a decision not to make. The row stays so
+    // the situation is documented and so California can be re-enabled if FTB
+    // publishes a feed; the app simply does not claim California coverage.
+    enabled: false,
+    accessUnrestricted: false,
     notes:
-      'No RSS — HTML adapter. Relevant for residency (FTB 1031-style guidance) and nonresident ' +
-      'withholding.',
+      'DISABLED — returns 403 to all requests. Deliberately not worked around: the brief says to ' +
+      'respect access restrictions. California developments therefore come only from the seeded ' +
+      'demonstration item until FTB offers a feed. Re-probe with npm run probe:feeds.',
   },
 
   /* --- Tier 2: professional / technical --------------------------------- */

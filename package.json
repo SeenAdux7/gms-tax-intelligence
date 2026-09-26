@@ -24,11 +24,20 @@
     "db:match": "tsx db/compute-matches.ts",
     "verify:assignments": "tsx scripts/verify-assignments.ts",
     "verify:dashboard": "tsx scripts/verify-dashboard.ts",
-    "verify:all": "npm run verify:matching && npm run verify:lesson && npm run verify:vocab && npm run verify:assignments && npm run verify:dashboard"
+    "verify:all": "npm run verify:pipeline && npm run verify:matching && npm run verify:lesson && npm run verify:vocab && npm run verify:assignments && npm run verify:dashboard",
+    "collect": "tsx pipeline/run.ts",
+    "collect:dry": "tsx pipeline/run.ts --dry-run --limit 2",
+    "db:fix": "npm run db:reset && npm run db:migrate && npm run db:seed",
+    "probe:feeds": "tsx scripts/probe-feeds.ts",
+    "collect:one": "tsx pipeline/run.ts --limit 1 --total 1",
+    "verify:pipeline": "tsx scripts/verify-pipeline.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
     "@electric-sql/pglite": "^0.5.8",
+    "cheerio": "^1.2.0",
     "drizzle-orm": "^0.45.3",
+    "fast-xml-parser": "^5.11.1",
     "next": "16.3.6",
     "react": "19.2.8",
     "react-dom": "19.2.8",
