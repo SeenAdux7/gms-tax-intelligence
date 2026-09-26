@@ -24,7 +24,7 @@
     "db:match": "tsx db/compute-matches.ts",
     "verify:assignments": "tsx scripts/verify-assignments.ts",
     "verify:dashboard": "tsx scripts/verify-dashboard.ts",
-    "verify:all": "npm run verify:pipeline && npm run verify:eval && npm run verify:matching && npm run verify:lesson && npm run verify:vocab && npm run verify:assignments && npm run verify:dashboard",
+    "verify:all": "npm run verify:pipeline && npm run verify:eval && npm run verify:budget && npm run verify:matching && npm run verify:lesson && npm run verify:vocab && npm run verify:assignments && npm run verify:dashboard",
     "collect": "tsx pipeline/run.ts",
     "collect:dry": "tsx pipeline/run.ts --dry-run --limit 2",
     "db:fix": "npm run db:reset && npm run db:migrate && npm run db:seed",
@@ -35,7 +35,9 @@
     "db:seed:evals": "tsx db/seed-evals.ts",
     "eval": "tsx pipeline/eval.ts",
     "verify:eval": "tsx scripts/verify-eval.ts",
-    "check:key": "tsx scripts/check-key.ts"
+    "check:key": "tsx scripts/check-key.ts",
+    "spend": "tsx scripts/spend.ts",
+    "verify:budget": "tsx scripts/verify-budget.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

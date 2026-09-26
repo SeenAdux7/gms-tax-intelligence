@@ -37,6 +37,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '../db/index'
 import { evalRuns, evalSamples, rawDocuments, sources } from '../db/schema'
 import { MODELS, extractDevelopment, hasApiKey, verifyQuotes, type Extraction } from './ai'
+import { assertWithinBudget } from './budget'
 
 /* ==========================================================================
  * The scorer
@@ -232,6 +233,10 @@ export async function runEval(): Promise<EvalSummary> {
       .where(eq(rawDocuments.id, sample.rawDocumentId))
 
     if (!document?.text) continue
+
+    // Per sample, not per run: six Opus calls in sequence should stop at the
+    // ceiling rather than only being checked before the first one.
+    await assertWithinBudget(`evaluating ${sample.label}`)
 
     const { extraction, usage } = await extractDevelopment({
       title: document.title,

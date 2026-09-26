@@ -57,6 +57,7 @@ import {
   formatViolations,
   hasBlockingError,
 } from '../db/invariants'
+import { assertWithinBudget, describeBudget } from './budget'
 import { contentHash, findDuplicate } from './dedupe'
 import { prefilter } from './prefilter'
 import { fetchArticle, fetchFeed, type FeedKind } from './sources'
@@ -150,6 +151,14 @@ export async function runCollection(options: Partial<Options> = {}): Promise<Run
         'fetching, parsing and deduplication without a key.',
     )
     return summary
+  }
+
+  // Refuse to start if the application spend ceiling is already reached.
+  // Checked here AND before each paid call, so a long run cannot sail past
+  // the limit between checks.
+  if (!opts.dryRun) {
+    const budget = await assertWithinBudget('starting the run')
+    summary.messages.push(`Budget: ${describeBudget(budget)}`)
   }
 
   const sourceRows = await db
@@ -428,6 +437,7 @@ async function processSource(
     comparable.push({ id: document.id, url: item.url, hash, text: article.text })
 
     /* --- stage 1: screen --------------------------------------------- */
+    await assertWithinBudget(`screening ${item.url}`)
     const screen = await screenRelevance({ title: article.title ?? item.title, text: article.text })
     stats.costUsd += screen.usage.costUsd
     summary.costUsd += screen.usage.costUsd
@@ -440,6 +450,7 @@ async function processSource(
     summary.relevant += 1
 
     /* --- stage 2: extract and write ---------------------------------- */
+    await assertWithinBudget(`extracting ${item.url}`)
     const { extraction, usage } = await extractDevelopment({
       title: article.title ?? item.title,
       text: article.text,
