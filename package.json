@@ -13,9 +13,11 @@
     "db:studio": "drizzle-kit studio",
     "db:seed:sources": "tsx db/seed-sources.ts",
     "db:seed:content": "tsx db/seed-content.ts",
-    "db:seed": "npm run db:seed:sources && npm run db:seed:content",
+    "db:seed": "npm run db:seed:sources && npm run db:seed:content && npm run db:seed:lessons",
     "db:reset": "node -e \"require('fs').rmSync('./.pglite',{recursive:true,force:true});console.log('local database reset')\"",
-    "screenshot": "tsx scripts/screenshot.ts"
+    "screenshot": "tsx scripts/screenshot.ts",
+    "db:seed:lessons": "tsx db/seed-lessons.ts",
+    "verify:lesson": "tsx scripts/verify-lesson.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",
