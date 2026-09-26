@@ -17,7 +17,8 @@
     "db:reset": "node -e \"require('fs').rmSync('./.pglite',{recursive:true,force:true});console.log('local database reset')\"",
     "screenshot": "tsx scripts/screenshot.ts",
     "db:seed:lessons": "tsx db/seed-lessons.ts",
-    "verify:lesson": "tsx scripts/verify-lesson.ts"
+    "verify:lesson": "tsx scripts/verify-lesson.ts",
+    "verify:vocab": "tsx scripts/verify-vocab.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",

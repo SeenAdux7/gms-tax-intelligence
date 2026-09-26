@@ -49,6 +49,7 @@ import {
   developmentPopulations,
   developments,
   developmentSources,
+  developmentTerms,
   developmentTopics,
   evidenceSpans,
   interpretationEvidence,
@@ -113,6 +114,22 @@ type SeedDevelopment = {
   }
   /** Quotes each interpretation is grounded in. */
   interpretationEvidence: Quote[]
+  /**
+   * Vocabulary terms a learner should follow up from this update, by slug.
+   *
+   * These are EDITORIAL, alongside the deterministic text scan in
+   * `linkDevelopmentTerms()`. Both are needed, and the reason is a genuine
+   * tension in the brief: the interpretations are written in deliberately
+   * plain language ("beginner first — explain unfamiliar language instead of
+   * assuming prior tax knowledge"), so they systematically avoid the jargon
+   * that the vocabulary section exists to teach. A pure text scan therefore
+   * finds almost nothing — measured at 5 links across all six developments.
+   *
+   * A development about Canadian withholding waivers is genuinely about
+   * shadow payroll and business travellers whether or not those exact words
+   * appear, and that is what a learner needs pointed at.
+   */
+  terms: string[]
 }
 
 /* ==========================================================================
@@ -197,6 +214,7 @@ const DEVELOPMENTS: SeedDevelopment[] = [
       'Where an employee exceeds 60 UK workdays during the year, the employer must notify HMRC within 30 days and revert to standard reporting from the date the threshold was exceeded.',
       'This guidance does not change the tax residence position of any employee, which continues to be determined by the statutory residence test.',
     ],
+    terms: ['business-traveler', 'withholding', 'shadow-payroll', 'tax-residency', 'host-country'],
   },
 
   /* ------------------------------------- 2. US — deliberately NO effective date */
@@ -275,6 +293,7 @@ const DEVELOPMENTS: SeedDevelopment[] = [
       'Employers are reminded that the existence of a foreign payroll arrangement does not by itself remove a US withholding obligation.',
       'The guidance does not address the treatment of equity compensation earned partly within and partly outside the United States.',
     ],
+    terms: ['tax-residency', 'withholding', 'business-traveler', 'shadow-payroll', 'host-country'],
   },
 
   /* ----------------------------------------------- 3. New York — proposed */
@@ -351,6 +370,7 @@ const DEVELOPMENTS: SeedDevelopment[] = [
       'The amendment is subject to a public comment period and has not been adopted.',
       'No effective date has been proposed.',
     ],
+    terms: ['withholding', 'tax-residency', 'home-country', 'host-country'],
   },
 
   /* -------------------------------------------------- 4. Ireland — enacted */
@@ -428,6 +448,14 @@ const DEVELOPMENTS: SeedDevelopment[] = [
       'Employers must certify an employee\'s arrival to Revenue within 90 days of that arrival in order for a claim to be made.',
       'The updated manual confirms that employees already certified under the previous threshold retain their existing entitlement for the remainder of the relief period.',
     ],
+    terms: [
+      'expatriate',
+      'assignment-allowance',
+      'tax-equalization',
+      'host-country',
+      'home-country',
+      'tax-settlement',
+    ],
   },
 
   /* ---------------------------------------------- 5. Canada — now effective */
@@ -502,6 +530,13 @@ const DEVELOPMENTS: SeedDevelopment[] = [
       'Applications submitted with less than 30 days notice will continue to be processed, but the Agency states that withholding must be applied until a waiver is issued.',
       'The streamlined process is in effect for applications received on or after 1 June 2026.',
       'The Agency has also confirmed that the certified non-resident employer regime is unchanged by this announcement.',
+    ],
+    terms: [
+      'withholding',
+      'business-traveler',
+      'shadow-payroll',
+      'tax-treaty',
+      'social-security-agreement',
     ],
   },
 
@@ -581,6 +616,7 @@ const DEVELOPMENTS: SeedDevelopment[] = [
       'The paper describes, without recommending, a possible de minimis threshold below which withholding would not be required.',
       'The paper states that it does not represent the position of the Board and that no legislative or regulatory proposal has been made.',
     ],
+    terms: ['withholding', 'business-traveler', 'home-country', 'host-country'],
   },
 ]
 
@@ -1038,6 +1074,96 @@ async function seedDevelopment(seed: SeedDevelopment) {
   }
 }
 
+/**
+ * Links each development to the vocabulary terms it actually mentions.
+ *
+ * "Terms mentioned in an update should be tappable and linked to their
+ * vocabulary cards."
+ *
+ * Done by scanning text for each term, not by hand-listing them and not by
+ * asking a model. It is a string search over a controlled 16-term list, so a
+ * deterministic pass is both cheaper and more reliable — and it keeps working
+ * when new terms are added without anyone revisiting the seed data.
+ *
+ * Two details that matter:
+ *
+ *   - Word-boundary matching, so "expatriate" does not match inside a longer
+ *     word and "tax" does not light up on "taxable" or "syntax".
+ *   - Plural tolerance via an optional trailing "s", which covers
+ *     "business travelers" / "business traveler" without a stemmer.
+ */
+async function linkDevelopmentTerms() {
+  const terms = await db
+    .select({ id: vocabTerms.id, term: vocabTerms.term, slug: vocabTerms.slug })
+    .from(vocabTerms)
+
+  const termIdBySlug = new Map(terms.map((t) => [t.slug, t.id]))
+  const editorialBySlug = new Map(DEVELOPMENTS.map((d) => [d.slug, d.terms]))
+
+  const allDevelopments = await db
+    .select({ id: developments.id, slug: developments.slug, headline: developments.headline })
+    .from(developments)
+
+  let linkCount = 0
+  let scanHits = 0
+
+  for (const development of allDevelopments) {
+    // Scan exactly the text the reader is actually shown on the update page:
+    // the headline, every interpretation body, and the evidence quotes (which
+    // are displayed, expandable, next to each fact).
+    //
+    // Deliberately NOT the full raw document. A term buried in a paragraph the
+    // reader never sees is not something they encountered, and linking it would
+    // put a tappable term on a page where the term never appears.
+    const [interpretationRows, quoteRows] = await Promise.all([
+      db
+        .select({ body: interpretations.body })
+        .from(interpretations)
+        .where(eq(interpretations.developmentId, development.id)),
+      db
+        .select({ quote: evidenceSpans.quote })
+        .from(evidenceSpans)
+        .innerJoin(rawDocuments, eq(evidenceSpans.rawDocumentId, rawDocuments.id))
+        .innerJoin(developmentSources, eq(developmentSources.rawDocumentId, rawDocuments.id))
+        .where(eq(developmentSources.developmentId, development.id)),
+    ])
+
+    const haystack = [
+      development.headline,
+      ...interpretationRows.map((i) => i.body),
+      ...quoteRows.map((q) => q.quote),
+    ]
+      .join('\n')
+      .toLowerCase()
+
+    const scanned = terms.filter((t) => {
+      const escaped = t.term.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      return new RegExp(`\\b${escaped}s?\\b`).test(haystack)
+    })
+    scanHits += scanned.length
+
+    // Union of literal mentions and the editorial list. Deduped by id, so a
+    // term found both ways produces one link.
+    const editorialIds = (editorialBySlug.get(development.slug) ?? []).map((slug) => {
+      const id = termIdBySlug.get(slug)
+      if (!id) throw new Error(`Development '${development.slug}' references unknown term '${slug}'`)
+      return id
+    })
+
+    const ids = [...new Set([...scanned.map((t) => t.id), ...editorialIds])]
+    if (ids.length === 0) continue
+
+    await db
+      .insert(developmentTerms)
+      .values(ids.map((termId) => ({ developmentId: development.id, termId })))
+      .onConflictDoNothing()
+
+    linkCount += ids.length
+  }
+
+  return { linkCount, scanHits }
+}
+
 async function main() {
   console.log('Seeding demonstration content...\n')
   console.log('  Reminder: stop `npm run dev` first. PGlite is single-process, so a running')
@@ -1063,8 +1189,11 @@ async function main() {
     )
   }
 
+  const { linkCount, scanHits } = await linkDevelopmentTerms()
+
   console.log(`\n  ${DEVELOPMENTS.length} developments, ${totalSpans} evidence spans, all quotes verified verbatim`)
   console.log(`  ${totalNulls} fact fields left NULL because the source does not state them`)
+  console.log(`  ${linkCount} vocabulary links (${scanHits} from literal text matches, rest editorial)`)
   console.log('\nDone.')
 }
 

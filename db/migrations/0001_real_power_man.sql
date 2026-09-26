@@ -1,0 +1,1 @@
+ALTER TABLE "saved_items" ADD COLUMN "bookmarked" boolean DEFAULT true NOT NULL;

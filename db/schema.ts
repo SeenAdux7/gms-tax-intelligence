@@ -760,6 +760,18 @@ export const developmentAssignmentMatches = pgTable(
  * rather than a rewrite, and defaults to 'local'.
  * ========================================================================== */
 
+/**
+ * Bookmarks and difficulty flags.
+ *
+ * These are two INDEPENDENT flags on one row, each with its own boolean, and
+ * that is deliberate. Row presence alone cannot express the state, because a
+ * user can bookmark a term, flag it as difficult, or both — and un-bookmarking
+ * a term must not silently discard a difficulty flag that the review queue
+ * depends on.
+ *
+ * A row with both flags false is meaningless and should be deleted rather than
+ * kept.
+ */
 export const savedItems = pgTable(
   'saved_items',
   {
@@ -768,7 +780,10 @@ export const savedItems = pgTable(
     /** 'development' | 'vocab_term'. */
     entityType: text('entity_type').notNull(),
     entityId: uuid('entity_id').notNull(),
-    /** Marks a vocabulary term the user flagged as hard, feeding Review mode. */
+    /** Explicitly bookmarked by the user; appears in the Saved tab. */
+    bookmarked: boolean('bookmarked').notNull().default(true),
+    /** Flagged as hard. Feeds Review mode and resurfaces the term sooner.
+     *  Independent of `bookmarked`. */
     markedDifficult: boolean('marked_difficult').notNull().default(false),
     savedAt: timestamp('saved_at', { withTimezone: true }).notNull().defaultNow(),
   },

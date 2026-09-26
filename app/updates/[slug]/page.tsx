@@ -23,6 +23,9 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import { getDevelopment } from '../../lib/queries'
+import { getTermsForDevelopment } from '../../lib/vocab-queries'
+import { isSaved } from '../../lib/saved-queries'
+import { SaveButton } from '../../components/SaveButton'
 import {
   POPULATION_LABELS,
   STATUS_LABELS,
@@ -93,6 +96,11 @@ export default async function UpdateDetailPage(props: PageProps<'/updates/[slug]
   const development = await getDevelopment(slug)
   if (!development) notFound()
 
+  const [terms, saved] = await Promise.all([
+    getTermsForDevelopment(slug),
+    isSaved('development', development.id),
+  ])
+
   const mode: Mode = search.mode === 'professional' ? 'professional' : 'learn'
 
   const interpretationsByKind = new Map(development.interpretations.map((i) => [i.kind, i]))
@@ -144,6 +152,21 @@ export default async function UpdateDetailPage(props: PageProps<'/updates/[slug]
                 {shortJurisdiction(code)}
               </span>
             ))}
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <SaveButton
+            entityType="development"
+            entityId={development.id}
+            initialSaved={saved}
+            revalidate={`/updates/${slug}`}
+          />
+          <Link
+            href={`/learn/${slug}`}
+            className="inline-flex items-center rounded-lg bg-accent px-3 py-1.5 text-[12px] font-medium text-white"
+          >
+            Take the lesson →
+          </Link>
         </div>
       </header>
 
@@ -349,6 +372,33 @@ export default async function UpdateDetailPage(props: PageProps<'/updates/[slug]
           {VERIFICATION_LABELS[development.verification].explain}
         </p>
       </section>
+
+      {/* Tappable vocabulary. "Terms mentioned in an update should be tappable
+          and linked to their vocabulary cards." Placed after the sources rather
+          than inline in the prose: inline links would turn a two-paragraph
+          summary into a field of blue, which fights the brief's insistence on
+          an uncluttered surface. */}
+      {terms.length > 0 && (
+        <section className="px-4 pt-7">
+          <SectionHeading
+            title="Terms worth knowing"
+            note="The language this update uses, explained plainly."
+          />
+          <ul className="space-y-2">
+            {terms.map((term) => (
+              <li key={term.slug}>
+                <Link
+                  href={`/vocabulary/${term.slug}`}
+                  className="block rounded-xl border border-line bg-surface-raised px-4 py-3 transition-colors hover:border-accent/40"
+                >
+                  <p className="text-[14px] font-semibold text-foreground">{term.term}</p>
+                  <p className="mt-0.5 text-[12px] leading-relaxed text-muted">{term.definition}</p>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </main>
   )
 }
