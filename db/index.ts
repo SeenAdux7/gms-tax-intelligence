@@ -2,36 +2,38 @@
  * Database connection
  * ===================
  *
- * Local development runs PGlite — real Postgres compiled to WebAssembly, stored
- * in a folder. That choice matters for a specific reason: it is the SAME SQL
- * dialect we'll run in production on Neon, so there is no "works locally,
- * breaks deployed" class of bug, and no account signup or database install
- * needed to work on the app. Phases 0-5 are meant to cost nothing and require
- * nothing.
+ * ONE SWITCH, DECIDED BY WHETHER DATABASE_URL IS SET.
  *
- * Production (phase 6 onward) swaps the driver for Neon serverless Postgres.
- * The schema, queries, and migrations are identical either way — see the
- * comment at the bottom for the swap.
+ *   DATABASE_URL set    -> Neon (production, and any local run that wants to
+ *                          talk to the deployed database)
+ *   DATABASE_URL absent -> PGlite, a folder on disk
+ *
+ * PGlite is real Postgres compiled to WebAssembly, so it speaks the same SQL
+ * dialect as Neon. That is the whole reason it was chosen: there is no
+ * "works locally, breaks deployed" class of bug, the same migrations run
+ * against both, and nobody needs an account to work on the app.
+ *
+ * The switch is an environment variable rather than NODE_ENV because the two
+ * questions are different. "Am I in production?" and "which database am I
+ * pointed at?" come apart constantly — running migrations against Neon from a
+ * laptop is the normal case, not an exception.
+ *
+ * PGLITE IS SINGLE-PROCESS. Only one process may hold its data directory at a
+ * time, so `npm run dev` must be stopped before running a `db:*` or `collect`
+ * script locally. Hard-killing the dev server can corrupt the directory
+ * (`RuntimeError: Aborted()` on the next query); the data is reproducible, so
+ * `npm run db:fix` is the recovery. None of this applies to Neon, which is a
+ * real networked server many processes can share.
  */
 
-import { PGlite } from '@electric-sql/pglite'
-import { drizzle } from 'drizzle-orm/pglite'
+import { drizzle as drizzlePglite } from 'drizzle-orm/pglite'
+import { drizzle as drizzleNeon } from 'drizzle-orm/neon-http'
 import * as schema from './schema'
 
-/**
- * Where PGlite keeps its data on disk. Gitignored; safe to delete to reset.
- *
- * IMPORTANT — PGlite is SINGLE-PROCESS. Only one process may hold this
- * directory at a time. If `next dev` is running and you also run a seed or
- * migration script, the script's writes will not be visible to the server (and
- * may not land at all): the server is serving from its own already-open
- * instance.
- *
- * So: stop the dev server before running db:seed or db:migrate, then restart
- * it. This constraint disappears in production, where Neon is a real networked
- * server that many processes can share.
- */
+/** Where PGlite keeps its data. Gitignored; safe to delete to reset. */
 const LOCAL_DATA_DIR = process.env.PGLITE_DATA_DIR ?? './.pglite'
+
+export const usingNeon = Boolean(process.env.DATABASE_URL)
 
 /**
  * Next.js hot-reloads modules in development, which would otherwise open a new
@@ -39,28 +41,34 @@ const LOCAL_DATA_DIR = process.env.PGLITE_DATA_DIR ?? './.pglite'
  * the client on `globalThis` so reloads reuse one connection.
  */
 const globalForDb = globalThis as unknown as {
-  __gmsPglite?: PGlite
+  __gmsDb?: ReturnType<typeof createDb>
 }
 
-function getClient(): PGlite {
-  if (!globalForDb.__gmsPglite) {
-    globalForDb.__gmsPglite = new PGlite(LOCAL_DATA_DIR)
+function createDb() {
+  if (process.env.DATABASE_URL) {
+    // neon-http sends each query as an HTTP request, which suits serverless
+    // hosting: no connection pool to exhaust and no socket to keep warm
+    // between invocations. The pooled connection string works fine with it.
+    //
+    // Imported lazily so a machine with no DATABASE_URL never loads the driver.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { neon } = require('@neondatabase/serverless') as typeof import('@neondatabase/serverless')
+    return drizzleNeon(neon(process.env.DATABASE_URL), { schema })
   }
-  return globalForDb.__gmsPglite
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { PGlite } = require('@electric-sql/pglite') as typeof import('@electric-sql/pglite')
+  return drizzlePglite(new PGlite(LOCAL_DATA_DIR), { schema })
 }
 
-export const db = drizzle(getClient(), { schema })
+/*
+ * The two drivers return structurally different Drizzle instances (one is
+ * HTTP-backed, one is in-process), so their types do not unify. Every query in
+ * this app uses the common surface — select, insert, update, delete — so the
+ * cast is safe in practice, and narrowing to one driver's type is what keeps
+ * the rest of the codebase from having to know which is in use.
+ */
+export const db = (globalForDb.__gmsDb ??= createDb()) as ReturnType<typeof drizzlePglite<typeof schema>>
 
 export type Db = typeof db
 export { schema }
-
-/**
- * Production swap (phase 6):
- *
- *   import { neon } from '@neondatabase/serverless'
- *   import { drizzle } from 'drizzle-orm/neon-http'
- *   export const db = drizzle(neon(process.env.DATABASE_URL!), { schema })
- *
- * Kept as a comment rather than a live branch so that local development has no
- * dependency on an environment variable being set correctly.
- */

@@ -42,6 +42,13 @@
  * Run with:  npm run db:seed:content
  */
 
+// MUST be the first import. db/index.ts decides between Neon and PGlite by
+// reading DATABASE_URL at module load, so the env file has to be loaded before
+// that module is evaluated. Without this the script silently writes to the
+// LOCAL database and reports success — which is exactly what happened: the
+// schema went to Neon (drizzle.config.ts loads .env.local itself) while every
+// seeded row went to PGlite.
+import '../pipeline/env'
 import { eq } from 'drizzle-orm'
 import { db } from './index'
 import {
@@ -51,6 +58,8 @@ import {
   developmentSources,
   developmentTerms,
   developmentTopics,
+  evalRuns,
+  evalSamples,
   evidenceSpans,
   interpretationEvidence,
   interpretations,
@@ -898,13 +907,44 @@ async function createEvidence(rawDocumentId: string, documentText: string, quote
   return row.id
 }
 
+/**
+ * Clears seeded content, in foreign-key order.
+ *
+ * THE ORDER IS THE WHOLE FUNCTION, and getting it wrong was invisible locally.
+ *
+ * `eval_samples.raw_document_id` and `eval_runs` reference documents WITHOUT a
+ * cascade, deliberately: an evaluation result should not silently vanish
+ * because content was reseeded. That means they have to be cleared explicitly,
+ * before the documents they point at.
+ *
+ * The original version omitted them and worked for weeks, because `db:fix`
+ * locally deletes the entire PGlite directory — so these tables were always
+ * empty by the time this ran and the ordering was never exercised. The first
+ * run against Neon, which has no directory to delete, failed immediately:
+ *
+ *   update or delete on table "raw_documents" violates foreign key constraint
+ *   "eval_samples_raw_document_id_raw_documents_id_fk"
+ *
+ * A reminder that "it works locally" can mean "the local setup cannot reach
+ * the failure", not "the code is right".
+ */
 async function clearExistingContent() {
-  // Order matters: developments hold FKs into evidence_spans, and evidence_spans
-  // hold FKs into raw_documents. Cascades handle the join tables and
-  // interpretations. Only seed rows are removed.
+  // 1. Evaluation rows first — they reference raw_documents with no cascade.
+  //    eval_runs cascades from eval_samples, but deleting it explicitly keeps
+  //    the order readable rather than relying on a cascade to be noticed.
+  await db.delete(evalRuns)
+  await db.delete(evalSamples)
+
+  // 2. Developments. Cascades take the join tables, interpretations, lessons,
+  //    lesson questions and lesson options with them — which matters, because
+  //    lesson_options also reference evidence_spans without a cascade.
   await db.delete(developments).where(eq(developments.isSeedData, true))
+
+  // 3. Now nothing points at evidence spans, and then at documents.
   await db.delete(evidenceSpans)
   await db.delete(rawDocuments)
+
+  // 4. Vocabulary last: development_terms is already gone with the developments.
   await db.delete(vocabRelations)
   await db.delete(vocabTerms)
 }
@@ -1213,6 +1253,10 @@ async function main() {
 main()
   .then(() => process.exit(0))
   .catch((err) => {
+    // Print the cause too. Drizzle wraps the underlying Postgres error there,
+    // and reporting only `err.message` leaves a generic "Failed query" with no
+    // constraint, type, or driver detail.
     console.error('\nSeed failed:', err instanceof Error ? err.message : err)
+    if (err instanceof Error && err.cause) console.error('\nCause:', err.cause)
     process.exit(1)
   })

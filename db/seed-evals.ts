@@ -33,6 +33,13 @@
  * Run with:  npm run db:seed:evals   (after db:seed:content)
  */
 
+// MUST be the first import. db/index.ts decides between Neon and PGlite by
+// reading DATABASE_URL at module load, so the env file has to be loaded before
+// that module is evaluated. Without this the script silently writes to the
+// LOCAL database and reports success — which is exactly what happened: the
+// schema went to Neon (drizzle.config.ts loads .env.local itself) while every
+// seeded row went to PGlite.
+import '../pipeline/env'
 import { eq } from 'drizzle-orm'
 import { db } from './index'
 import { developmentSources, developments, evalSamples, rawDocuments } from './schema'

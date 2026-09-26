@@ -38,11 +38,13 @@
     "check:key": "tsx scripts/check-key.ts",
     "spend": "tsx scripts/spend.ts",
     "verify:budget": "tsx scripts/verify-budget.ts",
-    "eval:report": "tsx scripts/eval-report.ts"
+    "eval:report": "tsx scripts/eval-report.ts",
+    "db:target": "tsx scripts/db-target.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
     "@electric-sql/pglite": "^0.5.8",
+    "@neondatabase/serverless": "^1.1.0",
     "cheerio": "^1.2.0",
     "drizzle-orm": "^0.45.3",
     "fast-xml-parser": "^5.11.1",
@@ -56,6 +58,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^18.0.4",
     "drizzle-kit": "^0.31.11",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
