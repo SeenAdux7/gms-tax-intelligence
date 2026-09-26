@@ -37,6 +37,8 @@ const SHOTS = [
   { name: '07-dashboard', path: '/dashboard', fullPage: true },
   { name: '08-assignments', path: '/assignments', fullPage: true },
   { name: '09-saved', path: '/saved', fullPage: true },
+  { name: '10-evaluation', path: '/evaluation', fullPage: true },
+  { name: '11-offline', path: '/offline', fullPage: false },
 ] as const
 
 async function shoot(browser: Browser, colorScheme: 'light' | 'dark') {

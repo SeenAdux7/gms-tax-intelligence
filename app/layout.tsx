@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import { BottomNav } from './components/BottomNav'
+import { ServiceWorker } from './components/ServiceWorker'
 import { AdviceDisclaimer } from './components/ui'
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
@@ -15,6 +16,14 @@ export const metadata: Metadata = {
   description:
     'Track tax, payroll, social security, and treaty developments affecting mobile employees — explained in plain language, with sources. Educational use only.',
   applicationName: 'Mobility Tax',
+  manifest: '/manifest.webmanifest',
+  // iOS ignores the manifest for the home-screen icon and for standalone
+  // display, so both have to be declared separately here.
+  appleWebApp: { capable: true, statusBarStyle: 'default', title: 'Mobility Tax' },
+  icons: {
+    icon: [{ url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
+    apple: [{ url: '/icons/apple-touch-icon.png', sizes: '180x180' }],
+  },
 }
 
 /**
@@ -48,6 +57,7 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
           <AdviceDisclaimer />
         </footer>
         <BottomNav />
+        <ServiceWorker />
       </body>
     </html>
   )

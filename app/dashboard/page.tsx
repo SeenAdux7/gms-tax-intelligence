@@ -351,6 +351,20 @@ export default async function DashboardPage() {
           )}
         </Panel>
 
+        {/* The evaluation page has no tab of its own — it is for an
+            interviewer and for tuning, not for daily use. */}
+        <Link
+          href="/evaluation"
+          className="block rounded-xl border border-line bg-surface-raised px-4 py-3 text-center"
+        >
+          <span className="block text-[13px] font-medium text-accent">
+            How well is this working? →
+          </span>
+          <span className="mt-0.5 block text-[11px] text-muted">
+            Source backing, declined guesses, question validity, collection health
+          </span>
+        </Link>
+
         <p className="px-1 pt-1 text-[11px] leading-relaxed text-muted">
           Every figure on this page is a count or a date comparison computed from stored records.
           Nothing here is estimated or generated.
